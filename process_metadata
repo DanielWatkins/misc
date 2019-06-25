@@ -14,6 +14,7 @@ data from igra2-metadata and from wmo-sonde-history."""
 
 import pandas as pd
 import numpy as np
+import os
 
 #### Import full list of weather stations ####
 station_list = pd.read_fwf('igra2-station-list.txt', header=None)
@@ -92,7 +93,7 @@ arctic_wmo_md.loc[:, 'MESSAGE'] = messages
 
 joined_meta = pd.concat([arctic_wmo_md, arctic_metadata],axis=0, ignore_index=True, sort=False)
 
-! mkdir 'station_metadata'
+os.system('mkdir "station_metadata"')
 for ii in range(len(arctic_stations)):
     df = joined_meta.loc[joined_meta.IGRAID == arctic_stations.loc[ii,'IGRAID']].reset_index()
     df.to_csv('station_metadata/' + arctic_stations.loc[ii, 'IGRAID'] + '-metadata.csv', index=False)
