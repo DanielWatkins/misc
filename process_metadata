@@ -43,7 +43,7 @@ station_metadata.columns = ['IGRAID', 'WMOID','NAME','NAMFLAG',
                             'BEFINFO', 'BEFFLAG', 'LINK', 
                             'AFTINFO', 'AFTFLAG', 'REFERENCE', 
                             'COMMENT', 'UPDCOM', 'UPDDATE']
-station_metadata.to_csv('igra2-metadata.csv')
+# station_metadata.to_csv('igra2-metadata.csv')
 
 #### Shrink down the metadata file to just the stations in the study, and just the metadata from the study period
 arctic_metadata = station_metadata.loc[station_metadata.IGRAID.isin(arctic_stations.IGRAID) & (station_metadata.YEAR >= 1990),:]
