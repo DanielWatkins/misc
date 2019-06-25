@@ -1,0 +1,98 @@
+"""Included with the radiosonde profiles in the IGRA2 repository is an extensive 
+collection of metadata. The following script is designed to process this data into a 
+form that is easier for a human to read. It is expected that the folder this is being run 
+in has the following files:
+- igra2-station-list.txt
+- igra2-metadata.txt
+- wmo_codes_3685.txt
+- wmo-sonde-history.txt
+wmo_codes_3685.txt I made from a WMO word file, the others are available from the IGRA2 ftp.
+The script will create a number of files. It makes a csv file called 'arctic_stations.csv' 
+that will be referenced in other files. It makes a folder called 'station_metadata' that 
+contains a CSV file for each station listed in arctic_stations.csv, which contains the 
+data from igra2-metadata and from wmo-sonde-history."""
+
+import pandas as pd
+import numpy as np
+
+#### Import full list of weather stations ####
+station_list = pd.read_fwf('igra2-station-list.txt', header=None)
+station_list.columns = ['IGRAID', 'LATITUDE', 'LONGITUDE', 'ELEVATION', 'NAME', 'FIRSTYEAR', 'LASTYEAR', 'NOBS']
+station_list['COUNTRY'] = [x[0:2] for x in station_list.IGRAID]
+
+#### Select stations for study ####
+arctic_stations = station_list.loc[((station_list.LATITUDE > 65) & (station_list.LASTYEAR > 2005)) & (station_list.LASTYEAR - station_list.FIRSTYEAR >= 5)]
+arctic_stations.reset_index(inplace=True, drop=True)
+arctic_stations.to_csv('arctic_stations.csv')
+
+#### Import metadata, format, and save as easier-to-access CSV ####
+lhs = [0,12,18,49,51,61,63,73,75,82,84,89,92,95,98,100,
+       120,123,163,165,168,208,210,262,315,347]
+rhs = [11,17,48,50,60,62,72,74,81,83,88,91,94,97,99,119,
+       122,163,164,167,208,209,235,315,346,354]
+cols = [(l,r) for l, r in zip(lhs, rhs)]
+
+station_metadata = pd.read_fwf('igra2-metadata.txt', header=None,
+                               colspecs=cols)
+station_metadata.columns = ['IGRAID', 'WMOID','NAME','NAMFLAG',
+                            'LATITUDE', 'LATFLAG', 'LONGITUDE', 
+                            'LONFLAG', 'ELEVATION', 'ELVFLAG', 
+                            'YEAR', 'MONTH', 'DAY', 'HOUR', 
+                            'DATEIND', 'EVENT', 'ALTIND', 
+                            'BEFINFO', 'BEFFLAG', 'LINK', 
+                            'AFTINFO', 'AFTFLAG', 'REFERENCE', 
+                            'COMMENT', 'UPDCOM', 'UPDDATE']
+station_metadata.to_csv('igra2-metadata.csv')
+
+#### Shrink down the metadata file to just the stations in the study, and just the metadata from the study period
+arctic_metadata = station_metadata.loc[station_metadata.IGRAID.isin(arctic_stations.IGRAID) & (station_metadata.YEAR >= 1990),:]
+
+# We assign uncertain months, days and hours to 1, 1 and 0
+arctic_metadata.loc[arctic_metadata.DAY == 99, 'MONTH'] = 1
+arctic_metadata.loc[arctic_metadata.DAY == 99, 'DAY'] = 1
+arctic_metadata.loc[arctic_metadata.HOUR == 99, 'HOUR'] = 0
+arctic_metadata.loc[:,'DATE'] = pd.to_datetime(arctic_metadata.loc[:,['YEAR','MONTH','DAY','HOUR']])
+arctic_metadata.reset_index(drop=True, inplace=True)
+arctic_metadata.drop(['YEAR','MONTH','DAY','HOUR'], axis=1, inplace=True)
+
+#### Read in the wmo codes from the table. 
+# I had to make a small machine-readable table from Word document with multiple code tables in it.
+# I also assign a date for "before" to differentiate from the Not Applicables
+wmo_codes = pd.read_table('wmo_codes_3685.txt')
+wmo_codes.loc[wmo_codes.DateOfAssignment=='Not applicable', 'DateOfAssignment'] = pd.NaT
+wmo_codes.loc[wmo_codes.DateOfAssignment=='Before', 'DateOfAssignment'] = '29/06/2007'
+wmo_codes.loc[:,'DateOfAssignment'] = pd.to_datetime(wmo_codes.DateOfAssignment)
+
+#### Read in WMO sonde history
+lhs = [0, 12, 17, 20, 23, 26, 31, 34, 37, 40]
+rhs = [11, 16, 19, 22, 25, 30, 33, 36, 39, 42]
+cols = [(l,r) for l, r in zip(lhs, rhs)]
+
+wmo_metadata = pd.read_fwf('wmo-sonde-history.txt', colspecs=cols, header=None)
+wmo_metadata.columns = ['ID', 'BEGYEAR', 'BEGMONTH', 'BEGDAY', 'BEGHOUR', 'ENDYEAR', 'ENDMONTH', 'ENDDAY', 'ENDHOUR', 'CODE']
+
+wmo_metadata = wmo_metadata.loc[wmo_metadata.ID.isin(arctic_stations.IGRAID),:]
+beg_date = pd.to_datetime({'year':wmo_metadata.BEGYEAR,
+                'month':wmo_metadata.BEGMONTH,
+                'day':wmo_metadata.BEGDAY,
+                'hour':wmo_metadata.BEGHOUR})
+
+end_date = pd.to_datetime({'year':wmo_metadata.ENDYEAR,
+                'month':wmo_metadata.ENDMONTH,
+                'day':wmo_metadata.ENDDAY,
+                'hour':wmo_metadata.ENDHOUR})
+
+arctic_wmo_md = pd.DataFrame({'IGRAID':wmo_metadata.ID, 'DATE':beg_date, 'CODE':wmo_metadata.CODE})
+arctic_wmo_md.reset_index(drop=True, inplace=True)
+
+messages = []
+for ii in range(len(arctic_wmo_md)):
+    messages.append(wmo_codes.loc[wmo_codes.RaRa == arctic_wmo_md.loc[ii,'CODE'], 'Meaning'].squeeze())
+arctic_wmo_md.loc[:, 'MESSAGE'] = messages
+
+joined_meta = pd.concat([arctic_wmo_md, arctic_metadata],axis=0, ignore_index=True, sort=False)
+
+! mkdir 'station_metadata'
+for ii in range(len(arctic_stations)):
+    df = joined_meta.loc[joined_meta.IGRAID == arctic_stations.loc[ii,'IGRAID']].reset_index()
+    df.to_csv('station_metadata/' + arctic_stations.loc[ii, 'IGRAID'] + '-metadata.csv', index=False)
